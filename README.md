@@ -6,6 +6,28 @@ Built as a Staff AI Engineer portfolio project — prioritizing evaluation metho
 
 ---
 
+## Why This Exists
+
+AI companies release new models all the time. But how do you know if the new model is actually better — or just better at sounding confident while being wrong?
+
+Standard benchmarks tell you about general ability. They don't tell you whether **your** model, on **your** data, in **your** product is behaving well. This project is infrastructure for that second question.
+
+It answers three specific things:
+
+| Question | Evaluator |
+|---|---|
+| Does the AI make up facts it wasn't given? | Hallucination |
+| Does the AI get real-world facts right? | Factuality |
+| Does the AI refuse adversarial prompts? | Jailbreak |
+
+**Why this order — hallucination → factuality → jailbreak**
+
+- **hallucination.py first** — the most common AI failure mode and the clearest to define. The model has a context; does its answer stay inside it? This also forced the core data model (`Case`, `Result`) that became the template for every evaluator that followed.
+- **factuality.py second** — harder, because there is no context to compare against. Required inventing a two-step approach: extract atomic claims, then verify them. Building hallucination first meant the prompt patterns and error handling were already solved.
+- **jailbreak.py last** — different in nature (binary pass/fail, adversarial input, attack taxonomy). By the third evaluator the design was stable enough to add a zero-API-cost heuristic strategy without second-guessing the architecture.
+
+---
+
 ## Architecture
 
 ```mermaid
