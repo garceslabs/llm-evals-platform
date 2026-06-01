@@ -1,0 +1,8 @@
+# Core
+anthropic>=0.105.0
+
+# Optional: NLI strategy in HallucinationEvaluator
+# sentence-transformers>=3.0.0
+
+# Dev
+pytest>=8.0.0
