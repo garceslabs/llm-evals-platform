@@ -46,6 +46,42 @@ class HallucinationResult:
     metadata: dict = field(default_factory=dict)
 
 
+_CONSISTENCY_SYSTEM = """\
+You are an evaluation judge assessing both factual grounding and self-consistency \
+across multiple model responses to the same prompt.
+
+Respond ONLY with valid JSON matching this exact schema:
+{
+  "consistency_score": <float 0.0–1.0>,
+  "score": <float 0.0–1.0>,
+  "is_hallucination": <bool>,
+  "flagged_claims": [<string>, ...],
+  "explanation": <string>
+}
+
+consistency_score: 1.0 = all sampled responses agree on every key fact; \
+0.0 = responses frequently contradict each other.
+score: how well-grounded the TARGET response is in the given context. \
+1.0 = every claim is supported; 0.0 = entirely fabricated or contradicts context.
+is_hallucination: true if the Target response contains unsupported or contradictory claims."""
+
+_CONSISTENCY_USER = """\
+## Context
+{context}
+
+## Prompt
+{prompt}
+
+## Sampled Responses
+{samples_text}
+
+## Target Response
+{response}
+
+Evaluate: (1) how consistent the sampled responses are with each other on key facts, \
+and (2) how well-grounded the Target Response is in the Context."""
+
+
 # System prompt is stable across calls — good candidate for prompt caching.
 _JUDGE_SYSTEM = """\
 You are an evaluation judge assessing factual grounding. Determine whether the \
@@ -188,9 +224,15 @@ class HallucinationEvaluator:
         self, case: HallucinationCase, n_samples: int = 5
     ) -> HallucinationResult:
         """
-        Sample N independent responses to the prompt, then judge the target response
-        against the pool. High disagreement between target and samples signals
-        confabulation rather than retrieval.
+        Sample N independent responses to the same prompt, then measure claim
+        variance across them. High variance signals that the model is uncertain
+        or confabulating; low variance signals reliable grounding.
+
+        A single consistency-judge call evaluates both inter-sample agreement
+        (consistency_score) and whether the TARGET response is grounded in the
+        context (score / is_hallucination). This keeps the total API call count
+        at n_samples + 1 while producing a richer signal than the single-judge
+        approach of stuffing all samples into one context string.
         """
         samples = []
         for _ in range(n_samples):
@@ -206,17 +248,64 @@ class HallucinationEvaluator:
             )
             samples.append(msg.content[0].text)
 
-        sampled_context = case.context + "\n\nSampled model responses:\n" + "\n---\n".join(samples)
-        proxy_case = HallucinationCase(
-            id=case.id,
-            prompt=case.prompt,
-            context=sampled_context,
-            response=case.response,
+        samples_text = "\n\n---\n\n".join(
+            f"Sample {i + 1}: {s}" for i, s in enumerate(samples)
         )
-        result = self._evaluate_llm_judge(proxy_case)
-        result.strategy = self.strategy.value
-        result.metadata["n_samples"] = n_samples
-        return result
+        message = self.client.messages.create(
+            model=self.model,
+            max_tokens=512,
+            system=[
+                {
+                    "type": "text",
+                    "text": _CONSISTENCY_SYSTEM,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[
+                {
+                    "role": "user",
+                    "content": _CONSISTENCY_USER.format(
+                        context=case.context,
+                        prompt=case.prompt,
+                        samples_text=samples_text,
+                        response=case.response,
+                    ),
+                }
+            ],
+        )
+        raw = message.content[0].text
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning(
+                "Consistency judge returned non-JSON for case %s: %.200s", case.id, raw
+            )
+            return HallucinationResult(
+                case_id=case.id,
+                score=0.0,
+                is_hallucination=True,
+                strategy=self.strategy.value,
+                explanation=raw,
+                raw_response=raw,
+                metadata={"n_samples": n_samples},
+            )
+
+        score = float(parsed.get("score", 0.0))
+        consistency_score = float(parsed.get("consistency_score", 0.0))
+        return HallucinationResult(
+            case_id=case.id,
+            score=score,
+            is_hallucination=score < self.threshold,
+            strategy=self.strategy.value,
+            flagged_claims=parsed.get("flagged_claims", []),
+            explanation=parsed.get("explanation", ""),
+            raw_response=raw,
+            metadata={
+                "n_samples": n_samples,
+                "consistency_score": consistency_score,
+            },
+        )
 
     # ------------------------------------------------------------------
     # Utilities

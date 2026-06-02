@@ -201,13 +201,42 @@ class TestBatchEvaluation:
 # ---------------------------------------------------------------------------
 
 
+def _make_consistency_response(
+    score: float,
+    consistency_score: float,
+    is_hallucination: bool,
+    flagged: list[str],
+    explanation: str,
+) -> MagicMock:
+    payload = json.dumps(
+        {
+            "score": score,
+            "consistency_score": consistency_score,
+            "is_hallucination": is_hallucination,
+            "flagged_claims": flagged,
+            "explanation": explanation,
+        }
+    )
+    content_block = MagicMock()
+    content_block.text = payload
+    response = MagicMock()
+    response.content = [content_block]
+    return response
+
+
 class TestSelfConsistencyStrategy:
     def _make_client_with_side_effect(self, n_samples: int):
         sample_block = MagicMock()
         sample_block.text = "Paris is the capital."
         sample_response = MagicMock()
         sample_response.content = [sample_block]
-        judge_response = _make_judge_response(score=0.9, is_hallucination=False, flagged=[], explanation="")
+        judge_response = _make_consistency_response(
+            score=0.9,
+            consistency_score=0.95,
+            is_hallucination=False,
+            flagged=[],
+            explanation="High consistency across samples.",
+        )
 
         call_count = 0
 
@@ -228,6 +257,14 @@ class TestSelfConsistencyStrategy:
         assert result.strategy == "self_consistency"
         assert result.metadata.get("n_samples") == 5
 
+    def test_consistency_score_stored_in_metadata(self):
+        evaluator = HallucinationEvaluator(strategy=Strategy.SELF_CONSISTENCY)
+        evaluator._client = self._make_client_with_side_effect(n_samples=5)
+        result = evaluator.evaluate(GROUNDED_CASE)
+
+        assert "consistency_score" in result.metadata
+        assert result.metadata["consistency_score"] == pytest.approx(0.95)
+
     def test_makes_n_plus_one_api_calls(self):
         n = 3
         evaluator = HallucinationEvaluator(strategy=Strategy.SELF_CONSISTENCY)
@@ -236,6 +273,36 @@ class TestSelfConsistencyStrategy:
         evaluator._evaluate_self_consistency(GROUNDED_CASE, n_samples=n)
 
         assert mock_client.messages.create.call_count == n + 1
+
+    def test_malformed_consistency_json_returns_hallucination(self):
+        sample_block = MagicMock()
+        sample_block.text = "Paris is the capital."
+        sample_response = MagicMock()
+        sample_response.content = [sample_block]
+
+        bad_block = MagicMock()
+        bad_block.text = "not valid json {"
+        bad_response = MagicMock()
+        bad_response.content = [bad_block]
+
+        call_count = 0
+        n = 2
+
+        def side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return sample_response if call_count <= n else bad_response
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = side_effect
+
+        evaluator = HallucinationEvaluator(strategy=Strategy.SELF_CONSISTENCY)
+        evaluator._client = mock_client
+        result = evaluator._evaluate_self_consistency(GROUNDED_CASE, n_samples=n)
+
+        assert result.is_hallucination
+        assert result.score == 0.0
+        assert result.metadata["n_samples"] == n
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Project Plan
 
-**Status:** Phase 2 complete — Runner, Datasets, CI  
+**Status:** Phase 3 complete — Regression Tracking  
 **Last updated:** 2026-06-02
 
 ---

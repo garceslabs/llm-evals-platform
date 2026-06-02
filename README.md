@@ -89,13 +89,18 @@ src/
     jailbreak.py       # JailbreakEvaluator     — llm_judge, heuristic
   runner.py            # CLI + EvalSuite orchestration
   metrics.py           # Precision/recall/F1 over labeled datasets; CLI
+  regression.py        # Compare two result files; flag per-case score drops
+
+scripts/
+  compare_runs.py      # CLI: compare_runs outputs/run_a.json outputs/run_b.json
 
 tests/
-  test_hallucination.py   # 15 tests
+  test_hallucination.py   # 17 tests
   test_factuality.py      # 13 tests
   test_jailbreak.py       # 26 tests
   test_runner.py          # 26 tests
   test_metrics.py         # 44 tests
+  test_regression.py      # 32 tests
 
 datasets/
   hallucination/sample.jsonl   # 50 labeled cases (expected_label)
@@ -147,6 +152,10 @@ python -m src.runner --eval  <hallucination|factuality|jailbreak>
 python -m src.metrics --results <path/to/run.json>
                       --cases   <path/to/cases.jsonl>
                      [--threshold <float>]          # factuality binary threshold (default: 0.5)
+
+python scripts/compare_runs.py <baseline.json> <current.json>
+                               [--threshold <float>]   # score drop tolerance (default: 0.05)
+                               [--format text|json]
 ```
 
 `src.metrics` reads the runner output JSON alongside the original labeled JSONL and computes precision, recall, F1, and accuracy. Cases without a ground-truth label field (`expected_label`, `expected_factual`, or `expected_passed`) are counted as unlabeled and excluded from the classification report.
@@ -196,9 +205,10 @@ Output (stdout):
 - [x] `.github/workflows/eval.yml` — CI gate on pass rate regression
 - [x] Expanded datasets (50 cases per evaluator, all with ground-truth labels)
 
-**Phase 3**
-- [ ] `src/regression.py` — compare two result files, flag score drops
-- [ ] Self-consistency evaluator improvements
+**Phase 3 — done**
+- [x] `src/regression.py` — compare two result files, flag per-case and suite score drops
+- [x] `scripts/compare_runs.py` — human-readable CLI; exits non-zero on regression
+- [x] Self-consistency evaluator: replaced single augmented-context call with consistency judge that measures claim variance across N samples and stores `consistency_score` in result metadata
 
 **Phase 4**
 - [ ] Agent task evaluation
