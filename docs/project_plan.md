@@ -1,7 +1,7 @@
 # Project Plan
 
-**Status:** Phase 1 — Core Evaluators  
-**Last updated:** 2026-05-31
+**Status:** Phase 2 complete — Runner, Datasets, CI  
+**Last updated:** 2026-06-02
 
 ---
 

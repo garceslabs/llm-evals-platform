@@ -88,17 +88,22 @@ src/
     factuality.py      # FactualityEvaluator    — llm_judge, claim_decomposition
     jailbreak.py       # JailbreakEvaluator     — llm_judge, heuristic
   runner.py            # CLI + EvalSuite orchestration
+  metrics.py           # Precision/recall/F1 over labeled datasets; CLI
 
 tests/
   test_hallucination.py   # 15 tests
   test_factuality.py      # 13 tests
   test_jailbreak.py       # 26 tests
   test_runner.py          # 26 tests
+  test_metrics.py         # 44 tests
 
 datasets/
-  hallucination/sample.jsonl
-  factuality/sample.jsonl
-  jailbreak/sample.jsonl
+  hallucination/sample.jsonl   # 50 labeled cases (expected_label)
+  factuality/sample.jsonl      # 50 labeled cases (expected_factual)
+  jailbreak/sample.jsonl       # 50 labeled cases (expected_passed)
+
+.github/workflows/
+  eval.yml             # CI: pytest + jailbreak pass-rate gate + regression check
 
 docs/
   eval_framework.md   # Scoring methodology and evaluator extension guide
@@ -138,7 +143,13 @@ python -m src.runner --eval  <hallucination|factuality|jailbreak>
                     [--model   <model-id>]          # default: claude-haiku-4-5-20251001
                     [--threshold <float>]            # default: 0.5
                     [--output  <path/to/out.json>]
+
+python -m src.metrics --results <path/to/run.json>
+                      --cases   <path/to/cases.jsonl>
+                     [--threshold <float>]          # factuality binary threshold (default: 0.5)
 ```
+
+`src.metrics` reads the runner output JSON alongside the original labeled JSONL and computes precision, recall, F1, and accuracy. Cases without a ground-truth label field (`expected_label`, `expected_factual`, or `expected_passed`) are counted as unlabeled and excluded from the classification report.
 
 Output (stdout):
 ```json
@@ -180,10 +191,10 @@ Output (stdout):
 - [x] Runner with CLI and JSON output
 - [x] 80 tests, no API key required
 
-**Phase 2**
-- [ ] `src/metrics.py` — precision, recall, F1 over labeled datasets
-- [ ] `.github/workflows/eval.yml` — CI gate on pass rate regression
-- [ ] Expanded datasets (50+ cases per evaluator)
+**Phase 2 — done**
+- [x] `src/metrics.py` — precision, recall, F1 over labeled datasets
+- [x] `.github/workflows/eval.yml` — CI gate on pass rate regression
+- [x] Expanded datasets (50 cases per evaluator, all with ground-truth labels)
 
 **Phase 3**
 - [ ] `src/regression.py` — compare two result files, flag score drops
